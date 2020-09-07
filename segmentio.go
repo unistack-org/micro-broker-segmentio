@@ -63,7 +63,7 @@ func (p *publication) Message() *broker.Message {
 }
 
 func (p *publication) Ack() error {
-	if logger.V(logger.TraceLevel, logger.DefaultLogger) {
+	if logger.V(logger.TraceLevel) {
 		logger.Tracef("commit offset %#+v\n", p.offsets)
 	}
 	return p.generation.CommitOffsets(p.offsets)
@@ -292,8 +292,8 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 				}
 				// unexpected context closed
 				if k.opts.Context.Err() != nil {
-					if logger.V(logger.TraceLevel, logger.DefaultLogger) {
-						logger.Errorf("[segmentio] context closed unexpected %v", k.opts.Context.Err())
+					if logger.V(logger.TraceLevel) {
+						logger.Tracef("[segmentio] context closed unexpected %v", k.opts.Context.Err())
 					}
 				}
 				return
@@ -310,13 +310,14 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 					closed := sub.closed
 					sub.RUnlock()
 					if !closed {
-						if logger.V(logger.TraceLevel, logger.DefaultLogger) {
-							logger.Errorf("[segmentio] recreate consumer group, as it closed %v", k.opts.Context.Err())
+						if logger.V(logger.TraceLevel) {
+							logger.Tracef("[segmentio] recreate consumer group, as it closed %v", k.opts.Context.Err())
 						}
 						if err = group.Close(); err != nil {
-							if logger.V(logger.TraceLevel, logger.DefaultLogger) {
-								logger.Errorf("[segmentio] consumer group close error %v", err)
+							if logger.V(logger.TraceLevel) {
+								logger.Tracef("[segmentio] consumer group close error %v", err)
 							}
+							continue
 						}
 						sub.createGroup(k.opts.Context)
 					}
@@ -326,13 +327,13 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 					closed := sub.closed
 					sub.RUnlock()
 					if !closed {
-						if logger.V(logger.TraceLevel, logger.DefaultLogger) {
+						if logger.V(logger.TraceLevel) {
 							logger.Tracef("[segmentio] recreate consumer group, as unexpected consumer error %v", err)
 						}
 					}
 					if err = group.Close(); err != nil {
-						if logger.V(logger.ErrorLevel, logger.DefaultLogger) {
-							logger.Errorf("[segmentio] consumer group close error %v", err)
+						if logger.V(logger.ErrorLevel) {
+							logger.Tracef("[segmentio] consumer group close error %v", err)
 						}
 					}
 					sub.createGroup(k.opts.Context)
@@ -348,7 +349,7 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 						cfg.GroupID = ""
 						// break reading
 						reader := kafka.NewReader(cfg)
-						if logger.V(logger.TraceLevel, logger.DefaultLogger) {
+						if logger.V(logger.TraceLevel) {
 							logger.Tracef("[segmentio] reader current offset: %v new offset: %v", reader.Offset(), assignment.Offset)
 						}
 						reader.SetOffset(assignment.Offset)
@@ -387,14 +388,14 @@ func (h *cgHandler) run(ctx context.Context) {
 			msg, err := h.reader.ReadMessage(ctx)
 			switch err {
 			default:
-				if logger.V(logger.TraceLevel, logger.DefaultLogger) {
+				if logger.V(logger.TraceLevel) {
 					logger.Tracef("[segmentio] unexpected error: %v", err)
 				}
 				return
 			case kafka.ErrGenerationEnded:
 				// generation has ended
-				if logger.V(logger.TraceLevel, logger.DefaultLogger) {
-					logger.Trace("[segmentio] generation ended")
+				if logger.V(logger.TraceLevel) {
+					logger.Tracef("[segmentio] generation ended")
 				}
 				return
 			case nil:
@@ -413,7 +414,7 @@ func (h *cgHandler) run(ctx context.Context) {
 					if eh != nil {
 						eh(p)
 					} else {
-						if logger.V(logger.ErrorLevel, logger.DefaultLogger) {
+						if logger.V(logger.ErrorLevel) {
 							logger.Errorf("[segmentio]: failed to unmarshal: %v", err)
 						}
 					}
@@ -422,7 +423,7 @@ func (h *cgHandler) run(ctx context.Context) {
 				err = h.handler(p)
 				if err == nil && h.subOpts.AutoAck {
 					if err = p.Ack(); err != nil {
-						if logger.V(logger.ErrorLevel, logger.DefaultLogger) {
+						if logger.V(logger.ErrorLevel) {
 							logger.Errorf("[segmentio]: unable to commit msg: %v", err)
 						}
 					}
@@ -431,7 +432,7 @@ func (h *cgHandler) run(ctx context.Context) {
 					if eh != nil {
 						eh(p)
 					} else {
-						if logger.V(logger.ErrorLevel, logger.DefaultLogger) {
+						if logger.V(logger.ErrorLevel) {
 							logger.Errorf("[segmentio]: subscriber error: %v", err)
 						}
 					}
@@ -454,8 +455,8 @@ func (sub *subscriber) createGroup(ctx context.Context) {
 		default:
 			cgroup, err := kafka.NewConsumerGroup(cgcfg)
 			if err != nil {
-				if logger.V(logger.DebugLevel, logger.DefaultLogger) {
-					logger.Debugf("[segmentio]: consumer group error %v", err)
+				if logger.V(logger.ErrorLevel) {
+					logger.Errorf("[segmentio]: consumer group error %v", err)
 				}
 				continue
 			}
