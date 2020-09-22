@@ -4,7 +4,6 @@ package segmentio
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -187,10 +186,8 @@ func (k *kBroker) Publish(topic string, msg *broker.Message, opts ...broker.Publ
 
 	buf, err := k.opts.Codec.Marshal(msg)
 	if err != nil {
-		fmt.Printf("TTTT %v\n", err)
 		return err
 	}
-	fmt.Printf("FFFF\n")
 	kmsg := kafka.Message{Value: buf}
 
 	k.Lock()
