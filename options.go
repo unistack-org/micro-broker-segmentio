@@ -16,11 +16,11 @@ type readerConfigKey struct{}
 type writerConfigKey struct{}
 
 func ReaderConfig(c kafka.ReaderConfig) broker.Option {
-	return broker.SetBrokerOption(readerConfigKey{}, c)
+	return broker.SetOption(readerConfigKey{}, c)
 }
 
 func WriterConfig(c kafka.WriterConfig) broker.Option {
-	return broker.SetBrokerOption(writerConfigKey{}, c)
+	return broker.SetOption(writerConfigKey{}, c)
 }
 
 type subscribeContextKey struct{}
