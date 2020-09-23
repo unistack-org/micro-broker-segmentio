@@ -26,6 +26,10 @@ func TestSegmentioSubscribe(t *testing.T) {
 	}
 
 	brk := segmentio.NewBroker(broker.Addrs(addrs...))
+	if err := brk.Init(); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := brk.Connect(); err != nil {
 		t.Fatal(err)
 	}
@@ -35,10 +39,13 @@ func TestSegmentioSubscribe(t *testing.T) {
 		}
 	}()
 
+	done := make(chan struct{}, 100)
 	fn := func(msg broker.Event) error {
-		err := msg.Ack()
-		t.Fatalf("msg %#+v\n", msg)
-		return err
+		if err := msg.Ack(); err != nil {
+			return err
+		}
+		done <- struct{}{}
+		return nil
 	}
 
 	sub, err := brk.Subscribe("test_topic", fn, broker.SubscribeGroup("test"))
@@ -50,7 +57,10 @@ func TestSegmentioSubscribe(t *testing.T) {
 			t.Fatal(err)
 		}
 	}()
-	select {}
+	if err := brk.Publish("test_topic", bm); err != nil {
+		t.Fatal(err)
+	}
+	<-done
 }
 
 func BenchmarkSegmentioCodecJsonPublish(b *testing.B) {

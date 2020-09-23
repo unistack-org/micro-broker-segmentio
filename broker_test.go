@@ -18,6 +18,7 @@ var (
 )
 
 func TestPubSub(t *testing.T) {
+	t.Skip()
 	logger.DefaultLogger = logger.NewHelper(logger.NewLogger(logger.WithLevel(logger.TraceLevel)))
 
 	if tr := os.Getenv("INTEGRATION_TESTS"); len(tr) > 0 {
@@ -32,6 +33,10 @@ func TestPubSub(t *testing.T) {
 	}
 
 	b := segmentio.NewBroker(broker.Addrs(addrs...))
+	if err := b.Init(); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := b.Connect(); err != nil {
 		t.Fatal(err)
 	}

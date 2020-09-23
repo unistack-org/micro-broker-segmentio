@@ -160,21 +160,7 @@ func (k *kBroker) Disconnect() error {
 }
 
 func (k *kBroker) Init(opts ...broker.Option) error {
-	for _, o := range opts {
-		o(&k.opts)
-	}
-	var cAddrs []string
-	for _, addr := range k.opts.Addrs {
-		if len(addr) == 0 {
-			continue
-		}
-		cAddrs = append(cAddrs, addr)
-	}
-	if len(cAddrs) == 0 {
-		cAddrs = []string{"127.0.0.1:9092"}
-	}
-	k.addrs = cAddrs
-	return nil
+	return k.configure(opts...)
 }
 
 func (k *kBroker) Options() broker.Options {
@@ -475,19 +461,17 @@ func (k *kBroker) String() string {
 	return "kafka"
 }
 
-func NewBroker(opts ...broker.Option) broker.Broker {
-	options := broker.Options{
-		// default to json codec
-		Codec:   json.Marshaler{},
-		Context: context.Background(),
+func (k *kBroker) configure(opts ...broker.Option) error {
+	for _, o := range opts {
+		o(&k.opts)
 	}
 
-	for _, o := range opts {
-		o(&options)
+	if k.opts.Codec == nil {
+		k.opts.Codec = json.Marshaler{}
 	}
 
 	var cAddrs []string
-	for _, addr := range options.Addrs {
+	for _, addr := range k.opts.Addrs {
 		if len(addr) == 0 {
 			continue
 		}
@@ -498,7 +482,7 @@ func NewBroker(opts ...broker.Option) broker.Broker {
 	}
 
 	readerConfig := kafka.ReaderConfig{}
-	if cfg, ok := options.Context.Value(readerConfigKey{}).(kafka.ReaderConfig); ok {
+	if cfg, ok := k.opts.Context.Value(readerConfigKey{}).(kafka.ReaderConfig); ok {
 		readerConfig = cfg
 	}
 	if len(readerConfig.Brokers) == 0 {
@@ -506,20 +490,23 @@ func NewBroker(opts ...broker.Option) broker.Broker {
 	}
 	readerConfig.WatchPartitionChanges = true
 
-	writerConfig := kafka.WriterConfig{CompressionCodec: nil}
-	if cfg, ok := options.Context.Value(writerConfigKey{}).(kafka.WriterConfig); ok {
+	writerConfig := kafka.WriterConfig{CompressionCodec: nil, BatchSize: 1}
+	if cfg, ok := k.opts.Context.Value(writerConfigKey{}).(kafka.WriterConfig); ok {
 		writerConfig = cfg
 	}
 	if len(writerConfig.Brokers) == 0 {
 		writerConfig.Brokers = cAddrs
 	}
-	writerConfig.BatchSize = 1
+	k.addrs = cAddrs
+	k.writerConfig = writerConfig
+	k.readerConfig = readerConfig
 
+	return nil
+}
+
+func NewBroker(opts ...broker.Option) broker.Broker {
 	return &kBroker{
-		readerConfig: readerConfig,
-		writerConfig: writerConfig,
-		writers:      make(map[string]*kafka.Writer),
-		addrs:        cAddrs,
-		opts:         options,
+		writers: make(map[string]*kafka.Writer),
+		opts:    broker.NewOptions(opts...),
 	}
 }
