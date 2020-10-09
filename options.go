@@ -41,3 +41,9 @@ type subscribeWriterConfigKey struct{}
 func SubscribeWriterConfig(c kafka.WriterConfig) broker.SubscribeOption {
 	return broker.SetSubscribeOption(subscribeWriterConfigKey{}, c)
 }
+
+type publishKey struct{}
+
+func PublishKey(key []byte) broker.PublishOption {
+	return broker.SetPublishOption(publishKey{}, key)
+}

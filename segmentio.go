@@ -170,11 +170,16 @@ func (k *kBroker) Options() broker.Options {
 func (k *kBroker) Publish(topic string, msg *broker.Message, opts ...broker.PublishOption) error {
 	var cached bool
 
-	buf, err := k.opts.Codec.Marshal(msg)
+	options := broker.NewPublishOptions(opts...)
+
+	val, err := k.opts.Codec.Marshal(msg)
 	if err != nil {
 		return err
 	}
-	kmsg := kafka.Message{Value: buf}
+	kmsg := kafka.Message{Value: val}
+	if key, ok := options.Context.Value(publishKey{}).([]byte); ok && len(key) > 0 {
+		kmsg.Key = key
+	}
 
 	k.Lock()
 	writer, ok := k.writers[topic]
@@ -236,10 +241,7 @@ func (k *kBroker) Publish(topic string, msg *broker.Message, opts ...broker.Publ
 }
 
 func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
-	opt := broker.SubscribeOptions{}
-	for _, o := range opts {
-		o(&opt)
-	}
+	opt := broker.NewSubscribeOptions(opts...)
 
 	if opt.Group == "" {
 		id, err := uuid.NewRandom()
