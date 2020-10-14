@@ -177,8 +177,10 @@ func (k *kBroker) Publish(topic string, msg *broker.Message, opts ...broker.Publ
 		return err
 	}
 	kmsg := kafka.Message{Value: val}
-	if key, ok := options.Context.Value(publishKey{}).([]byte); ok && len(key) > 0 {
-		kmsg.Key = key
+	if options.Context != nil {
+		if key, ok := options.Context.Value(publishKey{}).([]byte); ok && len(key) > 0 {
+			kmsg.Key = key
+		}
 	}
 
 	k.Lock()
