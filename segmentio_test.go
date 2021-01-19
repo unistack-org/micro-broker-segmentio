@@ -1,19 +1,74 @@
 package segmentio_test
 
 import (
+	"context"
 	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 
-	"github.com/micro/go-micro/v2/broker"
-	segmentio "github.com/micro/go-plugins/broker/segmentio/v2"
-	segjson "github.com/micro/go-plugins/codec/segmentio/v2"
+	segmentio "github.com/unistack-org/micro-broker-segmentio/v3"
+	"github.com/unistack-org/micro/v3/broker"
+	"github.com/unistack-org/micro/v3/logger"
 )
 
+func TestSegmentioSubscribe(t *testing.T) {
+	ctx := context.Background()
+	logger.DefaultLogger.Init(logger.WithLevel(logger.TraceLevel))
+	if tr := os.Getenv("INTEGRATION_TESTS"); len(tr) > 0 {
+		t.Skip()
+	}
+
+	var addrs []string
+	if addr := os.Getenv("BROKER_ADDRS"); len(addr) == 0 {
+		addrs = []string{"127.0.0.1:9092"}
+	} else {
+		addrs = strings.Split(addr, ",")
+	}
+
+	brk := segmentio.NewBroker(broker.Addrs(addrs...))
+	if err := brk.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := brk.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := brk.Disconnect(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	done := make(chan struct{}, 100)
+	fn := func(msg broker.Event) error {
+		if err := msg.Ack(); err != nil {
+			return err
+		}
+		done <- struct{}{}
+		return nil
+	}
+
+	sub, err := brk.Subscribe(ctx, "test_topic", fn, broker.SubscribeGroup("test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := sub.Unsubscribe(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	if err := brk.Publish(ctx, "test_topic", bm); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+}
+
 func BenchmarkSegmentioCodecJsonPublish(b *testing.B) {
+	ctx := context.Background()
+
 	//	b.Skip()
-	if tr := os.Getenv("TRAVIS"); len(tr) > 0 {
+	if tr := os.Getenv("INTEGRATION_TESTS"); len(tr) > 0 {
 		b.Skip()
 	}
 
@@ -25,24 +80,26 @@ func BenchmarkSegmentioCodecJsonPublish(b *testing.B) {
 	}
 
 	brk := segmentio.NewBroker(broker.Addrs(addrs...))
-	if err := brk.Connect(); err != nil {
+	if err := brk.Connect(ctx); err != nil {
 		b.Fatal(err)
 	}
 	defer func() {
-		if err := brk.Disconnect(); err != nil {
+		if err := brk.Disconnect(ctx); err != nil {
 			b.Fatal(err)
 		}
 	}()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := brk.Publish("test_topic", bm); err != nil {
+		if err := brk.Publish(ctx, "test_topic", bm); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
+
+/*
 func BenchmarkSegmentioCodecSegmentioPublish(b *testing.B) {
-	if tr := os.Getenv("TRAVIS"); len(tr) > 0 {
+	if tr := os.Getenv("INTEGRATION_TESTS"); len(tr) > 0 {
 		b.Skip()
 	}
 
@@ -71,10 +128,12 @@ func BenchmarkSegmentioCodecSegmentioPublish(b *testing.B) {
 	}
 
 }
-
+*/
 func BenchmarkSegmentioCodecJsonSubscribe(b *testing.B) {
 	b.Skip()
-	if tr := os.Getenv("TRAVIS"); len(tr) > 0 {
+	ctx := context.Background()
+
+	if tr := os.Getenv("INTEGRATION_TESTS"); len(tr) > 0 {
 		b.Skip()
 	}
 
@@ -86,11 +145,11 @@ func BenchmarkSegmentioCodecJsonSubscribe(b *testing.B) {
 	}
 
 	brk := segmentio.NewBroker(broker.Addrs(addrs...))
-	if err := brk.Connect(); err != nil {
+	if err := brk.Connect(ctx); err != nil {
 		b.Fatal(err)
 	}
 	defer func() {
-		if err := brk.Disconnect(); err != nil {
+		if err := brk.Disconnect(ctx); err != nil {
 			b.Fatal(err)
 		}
 	}()
@@ -118,26 +177,27 @@ func BenchmarkSegmentioCodecJsonSubscribe(b *testing.B) {
 			if v, ok := done.Load().(bool); ok && v {
 				return
 			}
-			if err := brk.Publish("test_topic", bm); err != nil {
+			if err := brk.Publish(ctx, "test_topic", bm); err != nil {
 				b.Fatal(err)
 			}
 		}
 	}()
 
-	sub, err := brk.Subscribe("test_topic", fn, broker.Queue("test"))
+	sub, err := brk.Subscribe(ctx, "test_topic", fn, broker.SubscribeGroup("test"))
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer func() {
-		if err := sub.Unsubscribe(); err != nil {
+		if err := sub.Unsubscribe(ctx); err != nil {
 			b.Fatal(err)
 		}
 	}()
 	<-exit
 }
 
+/*
 func BenchmarkSegmentioCodecSegmentioSubscribe(b *testing.B) {
-	if tr := os.Getenv("TRAVIS"); len(tr) > 0 {
+	if tr := os.Getenv("INTEGRATION_TESTS"); len(tr) > 0 {
 		b.Skip()
 	}
 
@@ -198,3 +258,4 @@ func BenchmarkSegmentioCodecSegmentioSubscribe(b *testing.B) {
 	}()
 	<-exit
 }
+*/

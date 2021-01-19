@@ -1,12 +1,14 @@
 package segmentio_test
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/micro/go-micro/v2/broker"
-	segmentio "github.com/micro/go-plugins/broker/segmentio/v2"
+	segmentio "github.com/unistack-org/micro-broker-segmentio/v3"
+	"github.com/unistack-org/micro/v3/broker"
+	"github.com/unistack-org/micro/v3/logger"
 )
 
 var (
@@ -17,7 +19,11 @@ var (
 )
 
 func TestPubSub(t *testing.T) {
-	if tr := os.Getenv("TRAVIS"); len(tr) > 0 {
+	t.Skip()
+	logger.DefaultLogger.Init(logger.WithLevel(logger.TraceLevel))
+	ctx := context.Background()
+
+	if tr := os.Getenv("INTEGRATION_TESTS"); len(tr) > 0 {
 		t.Skip()
 	}
 
@@ -29,12 +35,15 @@ func TestPubSub(t *testing.T) {
 	}
 
 	b := segmentio.NewBroker(broker.Addrs(addrs...))
-	if err := b.Connect(); err != nil {
-		t.Logf("cant connect to broker, skip: %v", err)
-		t.Skip()
+	if err := b.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := b.Connect(ctx); err != nil {
+		t.Fatal(err)
 	}
 	defer func() {
-		if err := b.Disconnect(); err != nil {
+		if err := b.Disconnect(ctx); err != nil {
 			t.Fatal(err)
 		}
 	}()
@@ -45,16 +54,16 @@ func TestPubSub(t *testing.T) {
 		return msg.Ack()
 	}
 
-	sub, err := b.Subscribe("test_topic", fn, broker.Queue("test"))
+	sub, err := b.Subscribe(ctx, "test_topic", fn, broker.SubscribeGroup("test"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := sub.Unsubscribe(); err != nil {
+		if err := sub.Unsubscribe(ctx); err != nil {
 			t.Fatal(err)
 		}
 	}()
-	if err := b.Publish("test_topic", bm); err != nil {
+	if err := b.Publish(ctx, "test_topic", bm); err != nil {
 		t.Fatal(err)
 	}
 	<-done

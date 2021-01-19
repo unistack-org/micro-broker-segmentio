@@ -3,16 +3,14 @@ package segmentio
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/micro/go-micro/v2/broker"
-	"github.com/micro/go-micro/v2/codec/json"
-	"github.com/micro/go-micro/v2/cmd"
-	"github.com/micro/go-micro/v2/logger"
 	kafka "github.com/segmentio/kafka-go"
+	"github.com/unistack-org/micro/v3/broker"
+	"github.com/unistack-org/micro/v3/logger"
 )
 
 type kBroker struct {
@@ -29,18 +27,19 @@ type kBroker struct {
 }
 
 type subscriber struct {
-	k         *kBroker
-	topic     string
-	opts      broker.SubscribeOptions
-	offset    int64
-	gen       *kafka.Generation
-	partition int
-	handler   broker.Handler
-	reader    *kafka.Reader
-	closed    bool
-	done      chan struct{}
-	group     *kafka.ConsumerGroup
-	cgcfg     kafka.ConsumerGroupConfig
+	k          *kBroker
+	topic      string
+	opts       broker.SubscribeOptions
+	offset     int64
+	gen        *kafka.Generation
+	partition  int
+	handler    broker.Handler
+	reader     *kafka.Reader
+	closed     bool
+	done       chan struct{}
+	group      *kafka.ConsumerGroup
+	cgcfg      kafka.ConsumerGroupConfig
+	brokerOpts broker.Options
 	sync.RWMutex
 }
 
@@ -48,15 +47,12 @@ type publication struct {
 	topic      string
 	err        error
 	m          *broker.Message
+	opts       broker.Options
 	ctx        context.Context
 	generation *kafka.Generation
 	reader     *kafka.Reader
 	km         kafka.Message
 	offsets    map[string]map[int]int64 // for commit offsets
-}
-
-func init() {
-	cmd.DefaultBrokers["kafka"] = NewBroker
 }
 
 func (p *publication) Topic() string {
@@ -68,8 +64,8 @@ func (p *publication) Message() *broker.Message {
 }
 
 func (p *publication) Ack() error {
-	if logger.V(logger.TraceLevel, logger.DefaultLogger) {
-		logger.Tracef("commit offset %#+v\n", p.offsets)
+	if p.opts.Logger.V(logger.TraceLevel) {
+		p.opts.Logger.Tracef(p.opts.Context, "commit offset %#+v\n", p.offsets)
 	}
 	return p.generation.CommitOffsets(p.offsets)
 }
@@ -86,7 +82,7 @@ func (s *subscriber) Topic() string {
 	return s.topic
 }
 
-func (s *subscriber) Unsubscribe() error {
+func (s *subscriber) Unsubscribe(ctx context.Context) error {
 	var err error
 	s.Lock()
 	defer s.Unlock()
@@ -104,30 +100,37 @@ func (k *kBroker) Address() string {
 	return "127.0.0.1:9092"
 }
 
-func (k *kBroker) Connect() error {
+func (k *kBroker) Connect(ctx context.Context) error {
 	k.RLock()
 	if k.connected {
 		k.RUnlock()
 		return nil
 	}
 	k.RUnlock()
-
+	dialCtx := k.opts.Context
+	if ctx != nil {
+		dialCtx = ctx
+	}
 	kaddrs := make([]string, 0, len(k.addrs))
 	for _, addr := range k.addrs {
-		conn, err := kafka.DialContext(k.opts.Context, "tcp", addr)
+		conn, err := kafka.DialContext(dialCtx, "tcp", addr)
 		if err != nil {
 			continue
 		}
 		if _, err = conn.Brokers(); err != nil {
-			conn.Close()
+			if err = conn.Close(); err != nil {
+				return err
+			}
 			continue
 		}
 		kaddrs = append(kaddrs, addr)
-		conn.Close()
+		if err = conn.Close(); err != nil {
+			return err
+		}
 	}
 
 	if len(kaddrs) == 0 {
-		return errors.New("no available brokers")
+		return fmt.Errorf("no available brokers: %v", k.addrs)
 	}
 
 	k.Lock()
@@ -140,7 +143,7 @@ func (k *kBroker) Connect() error {
 	return nil
 }
 
-func (k *kBroker) Disconnect() error {
+func (k *kBroker) Disconnect(ctx context.Context) error {
 	k.RLock()
 	if !k.connected {
 		k.RUnlock()
@@ -161,36 +164,28 @@ func (k *kBroker) Disconnect() error {
 }
 
 func (k *kBroker) Init(opts ...broker.Option) error {
-	for _, o := range opts {
-		o(&k.opts)
-	}
-	var cAddrs []string
-	for _, addr := range k.opts.Addrs {
-		if len(addr) == 0 {
-			continue
-		}
-		cAddrs = append(cAddrs, addr)
-	}
-	if len(cAddrs) == 0 {
-		cAddrs = []string{"127.0.0.1:9092"}
-	}
-	k.addrs = cAddrs
-	return nil
+	return k.configure(opts...)
 }
 
 func (k *kBroker) Options() broker.Options {
 	return k.opts
 }
 
-func (k *kBroker) Publish(topic string, msg *broker.Message, opts ...broker.PublishOption) error {
+func (k *kBroker) Publish(ctx context.Context, topic string, msg *broker.Message, opts ...broker.PublishOption) error {
 	var cached bool
 
-	buf, err := k.opts.Codec.Marshal(msg)
+	options := broker.NewPublishOptions(opts...)
+
+	val, err := k.opts.Codec.Marshal(msg)
 	if err != nil {
 		return err
 	}
-
-	kmsg := kafka.Message{Value: buf}
+	kmsg := kafka.Message{Value: val}
+	if options.Context != nil {
+		if key, ok := options.Context.Value(publishKey{}).([]byte); ok && len(key) > 0 {
+			kmsg.Key = key
+		}
+	}
 
 	k.Lock()
 	writer, ok := k.writers[topic]
@@ -207,8 +202,14 @@ func (k *kBroker) Publish(topic string, msg *broker.Message, opts ...broker.Publ
 		cached = true
 	}
 	k.Unlock()
-
-	err = writer.WriteMessages(k.opts.Context, kmsg)
+	wCtx := k.opts.Context
+	if ctx != nil {
+		wCtx = ctx
+	}
+	err = writer.WriteMessages(wCtx, kmsg)
+	if k.opts.Logger.V(logger.TraceLevel) {
+		k.opts.Logger.Tracef(k.opts.Context, "write message err: %v", err)
+	}
 	if err != nil {
 		switch cached {
 		case false:
@@ -217,7 +218,7 @@ func (k *kBroker) Publish(topic string, msg *broker.Message, opts ...broker.Publ
 				if kerr.Temporary() && !kerr.Timeout() {
 					// additional chanse to publish message
 					time.Sleep(200 * time.Millisecond)
-					err = writer.WriteMessages(k.opts.Context, kmsg)
+					err = writer.WriteMessages(wCtx, kmsg)
 				}
 			}
 		case true:
@@ -237,7 +238,7 @@ func (k *kBroker) Publish(topic string, msg *broker.Message, opts ...broker.Publ
 				return err
 			}
 			writer := kafka.NewWriter(cfg)
-			if err = writer.WriteMessages(k.opts.Context, kmsg); err == nil {
+			if err = writer.WriteMessages(wCtx, kmsg); err == nil {
 				k.Lock()
 				k.writers[topic] = writer
 				k.Unlock()
@@ -248,17 +249,19 @@ func (k *kBroker) Publish(topic string, msg *broker.Message, opts ...broker.Publ
 	return err
 }
 
-func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
-	opt := broker.SubscribeOptions{
-		AutoAck: true,
-		Queue:   uuid.New().String(),
-	}
-	for _, o := range opts {
-		o(&opt)
+func (k *kBroker) Subscribe(ctx context.Context, topic string, handler broker.Handler, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
+	opt := broker.NewSubscribeOptions(opts...)
+
+	if opt.Group == "" {
+		id, err := uuid.NewRandom()
+		if err != nil {
+			return nil, err
+		}
+		opt.Group = id.String()
 	}
 
 	cgcfg := kafka.ConsumerGroupConfig{
-		ID:                    opt.Queue,
+		ID:                    opt.Group,
 		WatchPartitionChanges: true,
 		Brokers:               k.readerConfig.Brokers,
 		Topics:                []string{topic},
@@ -273,11 +276,25 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 		return nil, err
 	}
 
-	sub := &subscriber{opts: opt, topic: topic, group: cgroup, cgcfg: cgcfg}
-
+	sub := &subscriber{brokerOpts: k.opts, opts: opt, topic: topic, group: cgroup, cgcfg: cgcfg}
 	go func() {
 		for {
 			select {
+			case <-ctx.Done():
+				sub.RLock()
+				closed := sub.closed
+				sub.RUnlock()
+				if closed {
+					// unsubcribed and closed
+					return
+				}
+				// unexpected context closed
+				if k.opts.Context.Err() != nil {
+					if k.opts.Logger.V(logger.TraceLevel) {
+						k.opts.Logger.Tracef(k.opts.Context, "[segmentio] context closed unexpected %v", k.opts.Context.Err())
+					}
+				}
+				return
 			case <-k.opts.Context.Done():
 				sub.RLock()
 				closed := sub.closed
@@ -288,8 +305,8 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 				}
 				// unexpected context closed
 				if k.opts.Context.Err() != nil {
-					if logger.V(logger.TraceLevel, logger.DefaultLogger) {
-						logger.Errorf("[segmentio] context closed unexpected %v", k.opts.Context.Err())
+					if k.opts.Logger.V(logger.TraceLevel) {
+						k.opts.Logger.Tracef(k.opts.Context, "[segmentio] context closed unexpected %v", k.opts.Context.Err())
 					}
 				}
 				return
@@ -297,7 +314,11 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 				sub.RLock()
 				group := sub.group
 				sub.RUnlock()
-				generation, err := group.Next(k.opts.Context)
+				gCtx := k.opts.Context
+				if ctx != nil {
+					gCtx = ctx
+				}
+				generation, err := group.Next(gCtx)
 				switch err {
 				case nil:
 					// normal execution
@@ -306,15 +327,16 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 					closed := sub.closed
 					sub.RUnlock()
 					if !closed {
-						if logger.V(logger.TraceLevel, logger.DefaultLogger) {
-							logger.Errorf("[segmentio] recreate consumer group, as it closed %v", k.opts.Context.Err())
+						if k.opts.Logger.V(logger.TraceLevel) {
+							k.opts.Logger.Tracef(k.opts.Context, "[segmentio] recreate consumer group, as it closed %v", k.opts.Context.Err())
 						}
 						if err = group.Close(); err != nil {
-							if logger.V(logger.TraceLevel, logger.DefaultLogger) {
-								logger.Errorf("[segmentio] consumer group close error %v", err)
+							if k.opts.Logger.V(logger.TraceLevel) {
+								k.opts.Logger.Tracef(k.opts.Context, "[segmentio] consumer group close error %v", err)
 							}
+							continue
 						}
-						sub.createGroup(k.opts.Context)
+						sub.createGroup(gCtx)
 					}
 					continue
 				default:
@@ -322,13 +344,13 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 					closed := sub.closed
 					sub.RUnlock()
 					if !closed {
-						if logger.V(logger.TraceLevel, logger.DefaultLogger) {
-							logger.Errorf("[segmentio] recreate consumer group, as unexpected consumer error %v", err)
+						if k.opts.Logger.V(logger.TraceLevel) {
+							k.opts.Logger.Tracef(k.opts.Context, "[segmentio] recreate consumer group, as unexpected consumer error %v", err)
 						}
 					}
 					if err = group.Close(); err != nil {
-						if logger.V(logger.TraceLevel, logger.DefaultLogger) {
-							logger.Errorf("[segmentio] consumer group close error %v", err)
+						if k.opts.Logger.V(logger.ErrorLevel) {
+							k.opts.Logger.Tracef(k.opts.Context, "[segmentio] consumer group close error %v", err)
 						}
 					}
 					sub.createGroup(k.opts.Context)
@@ -343,9 +365,12 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 						cfg.Partition = assignment.ID
 						cfg.GroupID = ""
 						// break reading
-						// cfg.StartOffset = assignment.Offset
 						reader := kafka.NewReader(cfg)
+						if k.opts.Logger.V(logger.TraceLevel) {
+							k.opts.Logger.Tracef(k.opts.Context, "[segmentio] reader current offset: %v new offset: %v", reader.Offset(), assignment.Offset)
+						}
 						reader.SetOffset(assignment.Offset)
+
 						cgh := &cgHandler{generation: generation, brokerOpts: k.opts, subOpts: opt, reader: reader, handler: handler}
 						generation.Start(cgh.run)
 					}
@@ -380,39 +405,48 @@ func (h *cgHandler) run(ctx context.Context) {
 			msg, err := h.reader.ReadMessage(ctx)
 			switch err {
 			default:
-				if logger.V(logger.TraceLevel, logger.DefaultLogger) {
-					logger.Tracef("[segmentio] unexpected error: %v", err)
+				if h.brokerOpts.Logger.V(logger.TraceLevel) {
+					h.brokerOpts.Logger.Tracef(h.brokerOpts.Context, "[segmentio] unexpected error: %v", err)
 				}
 				return
 			case kafka.ErrGenerationEnded:
 				// generation has ended
-				if logger.V(logger.TraceLevel, logger.DefaultLogger) {
-					logger.Trace("[segmentio] generation ended")
+				if h.brokerOpts.Logger.V(logger.TraceLevel) {
+					h.brokerOpts.Logger.Trace(h.brokerOpts.Context, "[segmentio] generation ended")
 				}
 				return
 			case nil:
-				var m broker.Message
 				eh := h.brokerOpts.ErrorHandler
-				offsets[msg.Topic][msg.Partition] = msg.Offset
-				p := &publication{topic: msg.Topic, generation: h.generation, m: &m, offsets: offsets}
 
-				if err := h.brokerOpts.Codec.Unmarshal(msg.Value, &m); err != nil {
-					p.err = err
+				if h.subOpts.ErrorHandler != nil {
+					eh = h.subOpts.ErrorHandler
+				}
+				offsets[msg.Topic][msg.Partition] = msg.Offset + 1
+				// github.com/segmentio/kafka-go/commit.go makeCommit builds commit message with offset + 1
+				// zookeeper store offset which needs to be sent on new consumer, so current + 1
+				p := &publication{topic: msg.Topic, opts: h.brokerOpts, generation: h.generation, m: &broker.Message{}, offsets: offsets}
+
+				if h.subOpts.BodyOnly {
 					p.m.Body = msg.Value
-					if eh != nil {
-						eh(p)
-					} else {
-						if logger.V(logger.ErrorLevel, logger.DefaultLogger) {
-							logger.Errorf("[segmentio]: failed to unmarshal: %v", err)
+				} else {
+					if err := h.brokerOpts.Codec.Unmarshal(msg.Value, p.m); err != nil {
+						p.err = err
+						p.m.Body = msg.Value
+						if eh != nil {
+							eh(p)
+						} else {
+							if h.brokerOpts.Logger.V(logger.ErrorLevel) {
+								h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio]: failed to unmarshal: %v", err)
+							}
 						}
+						continue
 					}
-					continue
 				}
 				err = h.handler(p)
 				if err == nil && h.subOpts.AutoAck {
 					if err = p.Ack(); err != nil {
-						if logger.V(logger.ErrorLevel, logger.DefaultLogger) {
-							logger.Errorf("[segmentio]: unable to commit msg: %v", err)
+						if h.brokerOpts.Logger.V(logger.ErrorLevel) {
+							h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio]: unable to commit msg: %v", err)
 						}
 					}
 				} else if err != nil {
@@ -420,8 +454,8 @@ func (h *cgHandler) run(ctx context.Context) {
 					if eh != nil {
 						eh(p)
 					} else {
-						if logger.V(logger.ErrorLevel, logger.DefaultLogger) {
-							logger.Errorf("[segmentio]: subscriber error: %v", err)
+						if h.brokerOpts.Logger.V(logger.ErrorLevel) {
+							h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio]: subscriber error: %v", err)
 						}
 					}
 				}
@@ -443,8 +477,8 @@ func (sub *subscriber) createGroup(ctx context.Context) {
 		default:
 			cgroup, err := kafka.NewConsumerGroup(cgcfg)
 			if err != nil {
-				if logger.V(logger.DebugLevel, logger.DefaultLogger) {
-					logger.Debugf("[segmentio]: consumer group error %v", err)
+				if sub.brokerOpts.Logger.V(logger.ErrorLevel) {
+					sub.brokerOpts.Logger.Errorf(sub.brokerOpts.Context, "[segmentio]: consumer group error %v", err)
 				}
 				continue
 			}
@@ -461,19 +495,13 @@ func (k *kBroker) String() string {
 	return "kafka"
 }
 
-func NewBroker(opts ...broker.Option) broker.Broker {
-	options := broker.Options{
-		// default to json codec
-		Codec:   json.Marshaler{},
-		Context: context.Background(),
-	}
-
+func (k *kBroker) configure(opts ...broker.Option) error {
 	for _, o := range opts {
-		o(&options)
+		o(&k.opts)
 	}
 
 	var cAddrs []string
-	for _, addr := range options.Addrs {
+	for _, addr := range k.opts.Addrs {
 		if len(addr) == 0 {
 			continue
 		}
@@ -484,7 +512,7 @@ func NewBroker(opts ...broker.Option) broker.Broker {
 	}
 
 	readerConfig := kafka.ReaderConfig{}
-	if cfg, ok := options.Context.Value(readerConfigKey{}).(kafka.ReaderConfig); ok {
+	if cfg, ok := k.opts.Context.Value(readerConfigKey{}).(kafka.ReaderConfig); ok {
 		readerConfig = cfg
 	}
 	if len(readerConfig.Brokers) == 0 {
@@ -492,20 +520,23 @@ func NewBroker(opts ...broker.Option) broker.Broker {
 	}
 	readerConfig.WatchPartitionChanges = true
 
-	writerConfig := kafka.WriterConfig{CompressionCodec: nil}
-	if cfg, ok := options.Context.Value(writerConfigKey{}).(kafka.WriterConfig); ok {
+	writerConfig := kafka.WriterConfig{CompressionCodec: nil, BatchSize: 1}
+	if cfg, ok := k.opts.Context.Value(writerConfigKey{}).(kafka.WriterConfig); ok {
 		writerConfig = cfg
 	}
 	if len(writerConfig.Brokers) == 0 {
 		writerConfig.Brokers = cAddrs
 	}
-	writerConfig.BatchSize = 1
+	k.addrs = cAddrs
+	k.writerConfig = writerConfig
+	k.readerConfig = readerConfig
 
+	return nil
+}
+
+func NewBroker(opts ...broker.Option) broker.Broker {
 	return &kBroker{
-		readerConfig: readerConfig,
-		writerConfig: writerConfig,
-		writers:      make(map[string]*kafka.Writer),
-		addrs:        cAddrs,
-		opts:         options,
+		writers: make(map[string]*kafka.Writer),
+		opts:    broker.NewOptions(opts...),
 	}
 }

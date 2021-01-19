@@ -1,17 +1,10 @@
-module github.com/micro/go-plugins/broker/segmentio/v2
+module github.com/unistack-org/micro-broker-segmentio/v3
 
-go 1.13
+go 1.15
 
 require (
-	github.com/google/uuid v1.1.1
-	github.com/micro/go-micro/v2 v2.9.1-0.20200716153311-f9bf56239306
-	github.com/micro/go-plugins/broker/kafka/v2 v2.9.2-0.20200716222928-fe493b686068
-	github.com/micro/go-plugins/codec/segmentio/v2 v2.9.2-0.20200716222928-fe493b686068
-	github.com/segmentio/kafka-go v0.3.7
+	github.com/google/uuid v1.1.5
+	github.com/segmentio/kafka-go v0.4.9-0.20210115193954-2b9123d8b5de
+	github.com/unistack-org/micro/v3 v3.1.2
+	golang.org/x/text v0.3.3 // indirect
 )
-
-replace github.com/micro/go-plugins/codec/segmentio/v2 => ../../codec/segmentio
-
-replace github.com/micro/go-plugins/broker/kafka/v2 => ../kafka
-
-replace github.com/coreos/etcd => github.com/ozonru/etcd v3.3.20-grpc1.27-origmodule+incompatible
