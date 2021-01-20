@@ -207,10 +207,10 @@ func (k *kBroker) Publish(ctx context.Context, topic string, msg *broker.Message
 		wCtx = ctx
 	}
 	err = writer.WriteMessages(wCtx, kmsg)
-	if k.opts.Logger.V(logger.TraceLevel) {
-		k.opts.Logger.Tracef(k.opts.Context, "write message err: %v", err)
-	}
 	if err != nil {
+		if k.opts.Logger.V(logger.TraceLevel) {
+			k.opts.Logger.Tracef(k.opts.Context, "write message err: %v", err)
+		}
 		switch cached {
 		case false:
 			// non cached case, we can try to wait on some errors, but not timeout
