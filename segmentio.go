@@ -100,6 +100,10 @@ func (k *kBroker) Address() string {
 	return "127.0.0.1:9092"
 }
 
+func (k *kBroker) Name() string {
+	return k.opts.Name
+}
+
 func (k *kBroker) Connect(ctx context.Context) error {
 	k.RLock()
 	if k.connected {
