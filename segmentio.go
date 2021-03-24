@@ -22,6 +22,7 @@ type kBroker struct {
 	writers map[string]*kafka.Writer
 
 	connected bool
+	init      bool
 	sync.RWMutex
 	opts broker.Options
 }
@@ -168,6 +169,9 @@ func (k *kBroker) Disconnect(ctx context.Context) error {
 }
 
 func (k *kBroker) Init(opts ...broker.Option) error {
+	if len(opts) == 0 && k.init {
+		return nil
+	}
 	return k.configure(opts...)
 }
 
@@ -504,6 +508,19 @@ func (k *kBroker) configure(opts ...broker.Option) error {
 		o(&k.opts)
 	}
 
+	if err := k.opts.Register.Init(); err != nil {
+		return err
+	}
+	if err := k.opts.Tracer.Init(); err != nil {
+		return err
+	}
+	if err := k.opts.Logger.Init(); err != nil {
+		return err
+	}
+	if err := k.opts.Meter.Init(); err != nil {
+		return err
+	}
+
 	var cAddrs []string
 	for _, addr := range k.opts.Addrs {
 		if len(addr) == 0 {
@@ -535,6 +552,7 @@ func (k *kBroker) configure(opts ...broker.Option) error {
 	k.writerConfig = writerConfig
 	k.readerConfig = readerConfig
 
+	k.init = true
 	return nil
 }
 
