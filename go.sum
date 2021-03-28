@@ -30,6 +30,8 @@ github.com/unistack-org/micro/v3 v3.3.2 h1:1r7fmaobJVZBKDhIewSBy8R4H/6YazQFetsDg
 github.com/unistack-org/micro/v3 v3.3.2/go.mod h1:tX95c0Qx4w6oqU7qKThs9lya9P507BdZ29MsTVDmU6w=
 github.com/unistack-org/micro/v3 v3.3.4 h1:wSYjL1sfrqtMmgFfYKylrKpAepMHrPcOpe10hvQAKuo=
 github.com/unistack-org/micro/v3 v3.3.4/go.mod h1:tX95c0Qx4w6oqU7qKThs9lya9P507BdZ29MsTVDmU6w=
+github.com/unistack-org/micro/v3 v3.3.8 h1:4e4gWuZI/cRUGZ6ZZpdrIDOF2MLO6cjHxeFfZzy610Y=
+github.com/unistack-org/micro/v3 v3.3.8/go.mod h1:M3RGgKZX1OlTn0QB+3R1tlSoGwmEg6rb/Isr0lLYmjQ=
 github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c h1:u40Z8hqBAAQyv+vATcGgV0YCnDjqSL7/q/JyPhhJSPk=
 github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c/go.mod h1:lB8K/P019DLNhemzwFU4jHLhdvlE6uDZjXFejJXr49I=
 github.com/xdg/stringprep v1.0.0 h1:d9X0esnoa3dFsV0FG35rAT0RIhYFlPq7MiP+DW89La0=
@@ -41,6 +43,7 @@ golang.org/x/net v0.0.0-20190404232315-eb5bcb51f2a3/go.mod h1:t9HGtf8HONx5eT2rtn
 golang.org/x/net v0.0.0-20210316092652-d523dce5a7f4 h1:b0LrWgu8+q7z4J+0Y3Umo5q1dL7NXBkKBWkaVkAq17E=
 golang.org/x/net v0.0.0-20210316092652-d523dce5a7f4/go.mod h1:RBQZq4jEuRlivfhVLdyRGr576XBO4/greRjx4P4O3yc=
 golang.org/x/net v0.0.0-20210324205630-d1beb07c2056/go.mod h1:uSPa2vr4CLtc/ILN5odXGNXS6mhrKVzTaCXzk9m6W3k=
+golang.org/x/net v0.0.0-20210326220855-61e056675ecf/go.mod h1:uSPa2vr4CLtc/ILN5odXGNXS6mhrKVzTaCXzk9m6W3k=
 golang.org/x/sys v0.0.0-20190215142949-d0b11bdaac8a/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20190412213103-97732733099d/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/sys v0.0.0-20201119102817-f84b799fce68/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
