@@ -32,6 +32,7 @@ github.com/unistack-org/micro/v3 v3.3.4 h1:wSYjL1sfrqtMmgFfYKylrKpAepMHrPcOpe10h
 github.com/unistack-org/micro/v3 v3.3.4/go.mod h1:tX95c0Qx4w6oqU7qKThs9lya9P507BdZ29MsTVDmU6w=
 github.com/unistack-org/micro/v3 v3.3.8 h1:4e4gWuZI/cRUGZ6ZZpdrIDOF2MLO6cjHxeFfZzy610Y=
 github.com/unistack-org/micro/v3 v3.3.8/go.mod h1:M3RGgKZX1OlTn0QB+3R1tlSoGwmEg6rb/Isr0lLYmjQ=
+github.com/unistack-org/micro/v3 v3.3.9/go.mod h1:M3RGgKZX1OlTn0QB+3R1tlSoGwmEg6rb/Isr0lLYmjQ=
 github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c h1:u40Z8hqBAAQyv+vATcGgV0YCnDjqSL7/q/JyPhhJSPk=
 github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c/go.mod h1:lB8K/P019DLNhemzwFU4jHLhdvlE6uDZjXFejJXr49I=
 github.com/xdg/stringprep v1.0.0 h1:d9X0esnoa3dFsV0FG35rAT0RIhYFlPq7MiP+DW89La0=
