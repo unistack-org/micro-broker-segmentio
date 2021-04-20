@@ -5,5 +5,5 @@ go 1.15
 require (
 	github.com/google/uuid v1.2.0
 	github.com/segmentio/kafka-go v0.4.14
-	github.com/unistack-org/micro/v3 v3.3.15
+	github.com/unistack-org/micro/v3 v3.3.16
 )
