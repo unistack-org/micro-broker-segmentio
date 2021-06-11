@@ -181,12 +181,18 @@ func (k *kBroker) Options() broker.Options {
 
 func (k *kBroker) Publish(ctx context.Context, topic string, msg *broker.Message, opts ...broker.PublishOption) error {
 	var cached bool
+	var val []byte
+	var err error
 
 	options := broker.NewPublishOptions(opts...)
 
-	val, err := k.opts.Codec.Marshal(msg)
-	if err != nil {
-		return err
+	if options.BodyOnly {
+		val = msg.Body
+	} else {
+		val, err = k.opts.Codec.Marshal(msg)
+		if err != nil {
+			return err
+		}
 	}
 	kmsg := kafka.Message{Value: val}
 	if options.Context != nil {
