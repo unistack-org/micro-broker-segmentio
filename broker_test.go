@@ -14,18 +14,17 @@ import (
 var (
 	bm = &broker.Message{
 		Header: map[string]string{"hkey": "hval"},
-		Body:   []byte("body"),
+		Body:   []byte(`"body"`),
 	}
 )
 
 func TestPubSub(t *testing.T) {
-	t.Skip()
-	logger.DefaultLogger.Init(logger.WithLevel(logger.TraceLevel))
-	ctx := context.Background()
-
 	if tr := os.Getenv("INTEGRATION_TESTS"); len(tr) > 0 {
 		t.Skip()
 	}
+
+	logger.DefaultLogger.Init(logger.WithLevel(logger.TraceLevel))
+	ctx := context.Background()
 
 	var addrs []string
 	if addr := os.Getenv("BROKER_ADDRS"); len(addr) == 0 {

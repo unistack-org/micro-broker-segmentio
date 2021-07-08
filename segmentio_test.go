@@ -43,6 +43,7 @@ func TestSegmentioSubscribe(t *testing.T) {
 	done := make(chan struct{}, 100)
 	fn := func(msg broker.Event) error {
 		if err := msg.Ack(); err != nil {
+			panic(err)
 			return err
 		}
 		done <- struct{}{}

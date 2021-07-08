@@ -2,6 +2,7 @@ package segmentio
 
 import (
 	"context"
+	"time"
 
 	kafka "github.com/segmentio/kafka-go"
 	"github.com/unistack-org/micro/v3/broker"
@@ -9,8 +10,9 @@ import (
 )
 
 var (
-	DefaultReaderConfig = kafka.WriterConfig{}
-	DefaultWriterConfig = kafka.ReaderConfig{}
+	DefaultReaderConfig  = kafka.ReaderConfig{}
+	DefaultWriterConfig  = kafka.WriterConfig{}
+	DefaultStatsInterval = time.Second * 10
 )
 
 type readerConfigKey struct{}
@@ -51,4 +53,16 @@ func PublishKey(key []byte) broker.PublishOption {
 
 func ClientPublishKey(key []byte) client.PublishOption {
 	return client.SetPublishOption(publishKey{}, key)
+}
+
+type statsIntervalKey struct{}
+
+func StatsInterval(td time.Duration) broker.Option {
+	return broker.SetOption(statsIntervalKey{}, td)
+}
+
+type writerCompletionFunc struct{}
+
+func WriterCompletionFunc(fn func([]kafka.Message, error)) broker.Option {
+	return broker.SetOption(writerCompletionFunc{}, fn)
 }
