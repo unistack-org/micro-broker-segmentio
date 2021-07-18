@@ -13,7 +13,7 @@ var (
 	DefaultReaderConfig    = kafka.ReaderConfig{}
 	DefaultWriterConfig    = kafka.WriterConfig{}
 	DefaultStatsInterval   = time.Second * 10
-	DefaultCommitInterval  = time.Second * 2
+	DefaultCommitInterval  = time.Second * 0
 	DefaultCommitQueueSize = 2000
 )
 
