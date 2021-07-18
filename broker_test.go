@@ -23,7 +23,10 @@ func TestPubSub(t *testing.T) {
 		t.Skip()
 	}
 
-	logger.DefaultLogger.Init(logger.WithLevel(logger.TraceLevel))
+	if err := logger.DefaultLogger.Init(logger.WithLevel(logger.TraceLevel)); err != nil {
+		t.Fatal(err)
+	}
+
 	ctx := context.Background()
 
 	var addrs []string
@@ -33,7 +36,7 @@ func TestPubSub(t *testing.T) {
 		addrs = strings.Split(addr, ",")
 	}
 
-	b := segmentio.NewBroker(broker.Addrs(addrs...))
+	b := segmentio.NewBroker(broker.Addrs(addrs...), segmentio.ClientID("test"))
 	if err := b.Init(); err != nil {
 		t.Fatal(err)
 	}

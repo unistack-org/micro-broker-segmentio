@@ -14,7 +14,10 @@ import (
 
 func TestSegmentioSubscribe(t *testing.T) {
 	ctx := context.Background()
-	logger.DefaultLogger.Init(logger.WithLevel(logger.TraceLevel))
+	if err := logger.DefaultLogger.Init(logger.WithLevel(logger.TraceLevel)); err != nil {
+		t.Fatal(err)
+	}
+
 	if tr := os.Getenv("INTEGRATION_TESTS"); len(tr) > 0 {
 		t.Skip()
 	}
@@ -43,7 +46,6 @@ func TestSegmentioSubscribe(t *testing.T) {
 	done := make(chan struct{}, 100)
 	fn := func(msg broker.Event) error {
 		if err := msg.Ack(); err != nil {
-			panic(err)
 			return err
 		}
 		done <- struct{}{}
@@ -179,7 +181,7 @@ func BenchmarkSegmentioCodecJsonSubscribe(b *testing.B) {
 				return
 			}
 			if err := brk.Publish(ctx, "test_topic", bm); err != nil {
-				b.Fatal(err)
+				panic(err)
 			}
 		}
 	}()

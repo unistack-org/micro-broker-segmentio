@@ -10,9 +10,11 @@ import (
 )
 
 var (
-	DefaultReaderConfig  = kafka.ReaderConfig{}
-	DefaultWriterConfig  = kafka.WriterConfig{}
-	DefaultStatsInterval = time.Second * 10
+	DefaultReaderConfig    = kafka.ReaderConfig{}
+	DefaultWriterConfig    = kafka.WriterConfig{}
+	DefaultStatsInterval   = time.Second * 10
+	DefaultCommitInterval  = time.Second * 2
+	DefaultCommitQueueSize = 2000
 )
 
 type readerConfigKey struct{}
@@ -65,4 +67,16 @@ type writerCompletionFunc struct{}
 
 func WriterCompletionFunc(fn func([]kafka.Message, error)) broker.Option {
 	return broker.SetOption(writerCompletionFunc{}, fn)
+}
+
+type clientIDKey struct{}
+
+func ClientID(id string) broker.Option {
+	return broker.SetOption(clientIDKey{}, id)
+}
+
+type commitIntervalKey struct{}
+
+func CommitInterval(td time.Duration) broker.Option {
+	return broker.SetOption(commitIntervalKey{}, td)
 }
