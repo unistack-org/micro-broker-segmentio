@@ -59,7 +59,7 @@ func (p *publication) Message() *broker.Message {
 
 func (p *publication) Ack() error {
 	if atomic.LoadInt32(p.readerDone) == 1 {
-		return fmt.Errorf("kafka reader done")
+		return kafka.ErrGroupClosed
 	}
 	p.ackCh <- map[string]map[int]int64{p.topic: {p.partition: p.offset}}
 	if cerr := p.ackErr.Load(); cerr != nil {
@@ -87,11 +87,9 @@ func (s *subscriber) Unsubscribe(ctx context.Context) error {
 	group := s.group
 	s.Unlock()
 
-	//fmt.Printf("unsub start\n")
 	if group != nil {
 		err = group.Close()
 	}
-	//fmt.Printf("unsub end\n")
 	return err
 }
 
@@ -466,7 +464,6 @@ func (k *kBroker) commitLoop(generation *kafka.Generation, commitInterval time.D
 			select {
 			case <-checkTicker.C:
 				if atomic.LoadInt32(cntWait) == 0 {
-					//fmt.Printf("cntWait IS 0\n")
 					mapMu.Lock()
 					if len(offsets) > 0 {
 						if err := generation.CommitOffsets(offsets); err != nil {
@@ -511,7 +508,6 @@ func (k *kBroker) commitLoop(generation *kafka.Generation, commitInterval time.D
 				}
 				// check for readers done and commit offsets
 				if atomic.LoadInt32(cntWait) == 0 {
-					//fmt.Printf("cntWait IS 0\n")
 					mapMu.Lock()
 					if len(offsets) > 0 {
 						if err := generation.CommitOffsets(offsets); err != nil {
@@ -527,7 +523,6 @@ func (k *kBroker) commitLoop(generation *kafka.Generation, commitInterval time.D
 					}
 					return
 				}
-				//fmt.Printf("cntWait NOT 0\n")
 			}
 		}
 	}()
@@ -544,7 +539,6 @@ func (k *kBroker) commitLoop(generation *kafka.Generation, commitInterval time.D
 				if atomic.LoadInt32(readerDone) == 1 {
 					mapMu.Lock()
 					if len(offsets) == 0 {
-						//fmt.Printf("close all on <-readerDoneCh\n")
 						defer ticker.Stop()
 						return
 					}
@@ -570,7 +564,6 @@ func (k *kBroker) commitLoop(generation *kafka.Generation, commitInterval time.D
 				offsets = make(map[string]map[int]int64, 4)
 				mapMu.Unlock()
 				if atomic.LoadInt32(readerDone) == 1 && atomic.LoadInt32(cntWait) == 0 {
-					//fmt.Printf("close all on <-ticker.C\n")
 					return
 				}
 			}
@@ -626,21 +619,18 @@ func (h *cgHandler) run(ctx context.Context) {
 			if h.brokerOpts.Logger.V(logger.ErrorLevel) {
 				h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio] unexpected error type: %T err: %v", err, err)
 			}
-			//fmt.Printf("exit from readMessage loop\n")
 			return
 		case kafka.ErrGenerationEnded:
 			// generation has ended
 			if h.brokerOpts.Logger.V(logger.TraceLevel) {
 				h.brokerOpts.Logger.Trace(h.brokerOpts.Context, "[segmentio] generation ended, rebalance or close")
 			}
-			//fmt.Printf("exit from readMessage loop\n")
 			return
 		case nil:
 			if cerr := commitErr.Load(); cerr != nil {
 				if h.brokerOpts.Logger.V(logger.ErrorLevel) {
 					h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio] commit error: %v", cerr)
 				}
-				//fmt.Printf("exit from readMessage loop\n")
 				return
 			}
 
