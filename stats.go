@@ -2,7 +2,6 @@ package segmentio
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	kafka "github.com/segmentio/kafka-go"
@@ -16,7 +15,7 @@ func readerStats(ctx context.Context, r *kafka.Reader, td time.Duration, m meter
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Printf("done reader stats\n")
+			//fmt.Printf("done reader stats\n")
 			return
 		case <-ticker.C:
 			if r == nil {
