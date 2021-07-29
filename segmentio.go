@@ -59,13 +59,13 @@ func (p *publication) Message() *broker.Message {
 }
 
 func (p *publication) Ack() error {
+	if cerr := p.ackErr.Load(); cerr != nil {
+		return cerr.(error)
+	}
 	if atomic.LoadInt32(p.readerDone) == 1 {
 		return kafka.ErrGroupClosed
 	}
 	p.ackCh <- map[string]map[int]int64{p.topic: {p.partition: p.offset}}
-	if cerr := p.ackErr.Load(); cerr != nil {
-		return cerr.(error)
-	}
 	return nil
 }
 
@@ -296,7 +296,6 @@ func (k *kBroker) Publish(ctx context.Context, topic string, msg *broker.Message
 	return k.writer.WriteMessages(wCtx, kmsg)
 }
 
-/*
 func (k *kBroker) BatchSubscribe(ctx context.Context, topic string, handler broker.BatchHandler, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
 	opt := broker.NewSubscribeOptions(opts...)
 
@@ -417,8 +416,8 @@ func (k *kBroker) BatchSubscribe(ctx context.Context, topic string, handler brok
 				cntWait := int32(0)
 
 				for topic, assignments := range generation.Assignments {
-					if k.opts.Logger.V(logger.TraceLevel) {
-						k.opts.Logger.Tracef(k.opts.Context, "topic: %s assignments: %v", topic, assignments)
+					if k.opts.Logger.V(logger.DebugLevel) {
+						k.opts.Logger.Debugf(k.opts.Context, "topic: %s assignments: %v", topic, assignments)
 					}
 					for _, assignment := range assignments {
 						cfg := k.readerConfig
@@ -440,11 +439,11 @@ func (k *kBroker) BatchSubscribe(ctx context.Context, topic string, handler brok
 						}
 						errCh := make(chan error)
 						errChs = append(errChs, errCh)
-						cgh := &cgBatchHandler{
+						cgh := &cgHandler{
 							brokerOpts:   k.opts,
 							subOpts:      opt,
 							reader:       reader,
-							handler:      handler,
+							batchhandler: handler,
 							ackCh:        ackCh,
 							errCh:        errCh,
 							cntWait:      &cntWait,
@@ -456,7 +455,7 @@ func (k *kBroker) BatchSubscribe(ctx context.Context, topic string, handler brok
 					}
 				}
 				if k.opts.Logger.V(logger.TraceLevel) {
-					k.opts.Logger.Trace(k.opts.Context, "start async commit loop")
+					k.opts.Logger.Trace(k.opts.Context, "start commit loop")
 				}
 				// run async commit loop
 				go k.commitLoop(generation, k.readerConfig.CommitInterval, ackCh, errChs, &readerDone, commitDoneCh, &cntWait)
@@ -478,7 +477,6 @@ type cgBatchHandler struct {
 	commitDoneCh chan bool
 	cntWait      *int32
 }
-*/
 
 func (k *kBroker) Subscribe(ctx context.Context, topic string, handler broker.Handler, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
 	opt := broker.NewSubscribeOptions(opts...)
@@ -588,11 +586,13 @@ func (k *kBroker) Subscribe(ctx context.Context, topic string, handler broker.Ha
 					continue
 				}
 
+				k.opts.Meter.Counter("broker_reader_partitions", "topic", topic).Set(uint64(0))
 				ackCh := make(chan map[string]map[int]int64, DefaultCommitQueueSize)
 				errChLen := 0
 				for _, assignments := range generation.Assignments {
 					errChLen += len(assignments)
 				}
+
 				errChs := make([]chan error, 0, errChLen)
 
 				commitDoneCh := make(chan bool)
@@ -600,6 +600,8 @@ func (k *kBroker) Subscribe(ctx context.Context, topic string, handler broker.Ha
 				cntWait := int32(0)
 
 				for topic, assignments := range generation.Assignments {
+					k.opts.Meter.Counter("broker_reader_partitions", "topic", topic).Set(uint64(len(assignments)))
+
 					if k.opts.Logger.V(logger.TraceLevel) {
 						k.opts.Logger.Tracef(k.opts.Context, "topic: %s assignments: %v", topic, assignments)
 					}
@@ -655,6 +657,7 @@ type cgHandler struct {
 	subOpts      broker.SubscribeOptions
 	reader       *kafka.Reader
 	handler      broker.Handler
+	batchhandler broker.BatchHandler
 	ackCh        chan map[string]map[int]int64
 	errCh        chan error
 	readerDone   *int32
@@ -663,10 +666,6 @@ type cgHandler struct {
 }
 
 func (k *kBroker) commitLoop(generation *kafka.Generation, commitInterval time.Duration, ackCh chan map[string]map[int]int64, errChs []chan error, readerDone *int32, commitDoneCh chan bool, cntWait *int32) {
-
-	if k.opts.Logger.V(logger.TraceLevel) {
-		k.opts.Logger.Trace(k.opts.Context, "start commit loop")
-	}
 
 	td := DefaultCommitInterval
 
@@ -710,7 +709,7 @@ func (k *kBroker) commitLoop(generation *kafka.Generation, commitInterval time.D
 				}
 			case ack := <-ackCh:
 				if k.opts.Logger.V(logger.TraceLevel) {
-					k.opts.Logger.Tracef(k.opts.Context, "new commit offsets: %v", ack)
+					//				k.opts.Logger.Tracef(k.opts.Context, "new commit offsets: %v", ack)
 				}
 				switch td {
 				case 0: // sync commits as CommitInterval == 0
@@ -802,7 +801,7 @@ func (k *kBroker) commitLoop(generation *kafka.Generation, commitInterval time.D
 
 func (h *cgHandler) run(ctx context.Context) {
 	if h.brokerOpts.Logger.V(logger.TraceLevel) {
-		h.brokerOpts.Logger.Trace(ctx, "start partition reader")
+		h.brokerOpts.Logger.Tracef(ctx, "start partition reader topic: %s partition: %d", h.reader.Config().Topic, h.reader.Config().Partition)
 	}
 
 	td := DefaultStatsInterval
@@ -820,20 +819,28 @@ func (h *cgHandler) run(ctx context.Context) {
 
 		atomic.CompareAndSwapInt32(h.readerDone, 0, 1)
 		if err := h.reader.Close(); err != nil && h.brokerOpts.Logger.V(logger.ErrorLevel) {
-			h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio] reader close error: %v", err)
+			h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio] reader for topic %s partition %d close error: %v", h.reader.Config().Topic, h.reader.Config().Partition, err)
 		}
 		<-h.commitDoneCh
 		if h.brokerOpts.Logger.V(logger.TraceLevel) {
-			h.brokerOpts.Logger.Trace(ctx, "stop partition reader")
+			h.brokerOpts.Logger.Tracef(ctx, "stop partition reader topic: %s partition: %d", h.reader.Config().Topic, h.reader.Config().Partition)
 		}
 	}()
 
+	/*
+		tc := time.NewTicker(3 * time.Second)
+		defer tc.Stop()
+	*/
 	go func() {
 		for {
 			select {
+			//		case <-tc.C:
+			//		commitErr.Store(errors.New("my err"))
+			//	return
 			case err := <-h.errCh:
 				if err != nil {
 					commitErr.Store(err)
+					return
 				}
 			case <-ctx.Done():
 				return
@@ -842,68 +849,76 @@ func (h *cgHandler) run(ctx context.Context) {
 	}()
 
 	for {
-		msg, err := h.reader.ReadMessage(ctx)
-		switch err {
+		select {
+		case <-ctx.Done():
+			return
 		default:
-			if h.brokerOpts.Logger.V(logger.ErrorLevel) {
-				h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio] unexpected error type: %T err: %v", err, err)
-			}
-			return
-		case kafka.ErrGenerationEnded:
-			// generation has ended
-			if h.brokerOpts.Logger.V(logger.TraceLevel) {
-				h.brokerOpts.Logger.Trace(h.brokerOpts.Context, "[segmentio] generation ended, rebalance or close")
-			}
-			return
-		case nil:
-			if cerr := commitErr.Load(); cerr != nil {
+			msg, err := h.reader.ReadMessage(ctx)
+			switch err {
+			default:
 				if h.brokerOpts.Logger.V(logger.ErrorLevel) {
-					h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio] commit error: %v", cerr)
+					h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio] unexpected error type: %T err: %v", err, err)
 				}
 				return
-			}
+			case kafka.ErrGenerationEnded:
+				// generation has ended
+				if h.brokerOpts.Logger.V(logger.TraceLevel) {
+					h.brokerOpts.Logger.Trace(h.brokerOpts.Context, "[segmentio] generation ended, rebalance or close")
+				}
+				return
+			case nil:
+				if cerr := commitErr.Load(); cerr != nil {
+					if h.brokerOpts.Logger.V(logger.ErrorLevel) {
+						h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio] commit error: %v", cerr)
+					}
+					return
+				}
 
-			eh := h.brokerOpts.ErrorHandler
+				eh := h.brokerOpts.ErrorHandler
 
-			if h.subOpts.ErrorHandler != nil {
-				eh = h.subOpts.ErrorHandler
-			}
-			p := &publication{ackCh: h.ackCh, partition: msg.Partition, offset: msg.Offset + 1, topic: msg.Topic, msg: &broker.Message{}, readerDone: h.readerDone}
+				if h.subOpts.ErrorHandler != nil {
+					eh = h.subOpts.ErrorHandler
+				}
+				p := &publication{ackCh: h.ackCh, partition: msg.Partition, offset: msg.Offset + 1, topic: msg.Topic, msg: &broker.Message{}, readerDone: h.readerDone}
 
-			if h.subOpts.BodyOnly {
-				p.msg.Body = msg.Value
-			} else {
-				if err := h.brokerOpts.Codec.Unmarshal(msg.Value, p.msg); err != nil {
-					p.SetError(err)
+				if h.subOpts.BodyOnly {
 					p.msg.Body = msg.Value
+				} else {
+					if err := h.brokerOpts.Codec.Unmarshal(msg.Value, p.msg); err != nil {
+						p.SetError(err)
+						p.msg.Body = msg.Value
+						if eh != nil {
+							_ = eh(p)
+						} else {
+							if h.brokerOpts.Logger.V(logger.ErrorLevel) {
+								h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio]: failed to unmarshal: %v", err)
+							}
+						}
+						continue
+					}
+				}
+				if cerr := commitErr.Load(); cerr != nil {
+					if h.brokerOpts.Logger.V(logger.ErrorLevel) {
+						h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio] commit error: %v", cerr)
+					}
+					return
+				}
+				err = h.handler(p)
+				if err == nil && h.subOpts.AutoAck {
+					if err = p.Ack(); err != nil {
+						if h.brokerOpts.Logger.V(logger.ErrorLevel) {
+							h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio]: message ack error: %v", err)
+						}
+						return
+					}
+				} else if err != nil {
+					p.err = err
 					if eh != nil {
 						_ = eh(p)
 					} else {
 						if h.brokerOpts.Logger.V(logger.ErrorLevel) {
-							h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio]: failed to unmarshal: %v", err)
+							h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio]: subscriber error: %v", err)
 						}
-					}
-					continue
-				}
-			}
-			if cerr := commitErr.Load(); cerr != nil {
-				p.ackErr.Store(cerr.(bool))
-			}
-			err = h.handler(p)
-			if err == nil && h.subOpts.AutoAck {
-				if err = p.Ack(); err != nil {
-					if h.brokerOpts.Logger.V(logger.ErrorLevel) {
-						h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio]: message ack error: %v", err)
-						return
-					}
-				}
-			} else if err != nil {
-				p.err = err
-				if eh != nil {
-					_ = eh(p)
-				} else {
-					if h.brokerOpts.Logger.V(logger.ErrorLevel) {
-						h.brokerOpts.Logger.Errorf(h.brokerOpts.Context, "[segmentio]: subscriber error: %v", err)
 					}
 				}
 			}
@@ -912,16 +927,14 @@ func (h *cgHandler) run(ctx context.Context) {
 }
 
 func (sub *subscriber) createGroup(ctx context.Context) {
-	sub.RLock()
-	cgcfg := sub.cgcfg
-	sub.RUnlock()
-
 	for {
 		select {
 		case <-ctx.Done():
-			// closed
 			return
 		default:
+			sub.RLock()
+			cgcfg := sub.cgcfg
+			sub.RUnlock()
 			cgroup, err := kafka.NewConsumerGroup(cgcfg)
 			if err != nil {
 				if sub.brokerOpts.Logger.V(logger.ErrorLevel) {
@@ -932,7 +945,6 @@ func (sub *subscriber) createGroup(ctx context.Context) {
 			sub.Lock()
 			sub.group = cgroup
 			sub.Unlock()
-			// return
 			return
 		}
 	}
@@ -989,28 +1001,41 @@ func (k *kBroker) configure(opts ...broker.Option) error {
 	}
 	k.addrs = cAddrs
 	k.readerConfig = readerConfig
-	k.writer = &kafka.Writer{
-		Addr:         kafka.TCP(k.addrs...),
-		Balancer:     writerConfig.Balancer,
-		MaxAttempts:  writerConfig.MaxAttempts,
-		BatchSize:    writerConfig.BatchSize,
-		BatchBytes:   int64(writerConfig.BatchBytes),
-		BatchTimeout: writerConfig.BatchTimeout,
-		ReadTimeout:  writerConfig.ReadTimeout,
-		WriteTimeout: writerConfig.WriteTimeout,
-		RequiredAcks: kafka.RequiredAcks(writerConfig.RequiredAcks),
-		Async:        writerConfig.Async,
-		//Completion:   writerConfig.Completion,
-		//Compression:  writerConfig.Compression,
-		Logger:      writerConfig.Logger,
-		ErrorLogger: writerConfig.ErrorLogger,
-		//Transport:    writerConfig.Transport,
+	k.writerConfig = writerConfig
+
+	if k.readerConfig.Dialer == nil {
+		k.readerConfig.Dialer = kafka.DefaultDialer
+	}
+	if k.writerConfig.Dialer == nil {
+		k.writerConfig.Dialer = kafka.DefaultDialer
 	}
 	if id, ok := k.opts.Context.Value(clientIDKey{}).(string); ok {
-		if k.readerConfig.Dialer == nil {
-			k.readerConfig.Dialer = kafka.DefaultDialer
-		}
+		k.writerConfig.Dialer.ClientID = id
 		k.readerConfig.Dialer.ClientID = id
+	}
+
+	k.writer = &kafka.Writer{
+		Addr:         kafka.TCP(k.addrs...),
+		Balancer:     k.writerConfig.Balancer,
+		MaxAttempts:  k.writerConfig.MaxAttempts,
+		BatchSize:    k.writerConfig.BatchSize,
+		BatchBytes:   int64(k.writerConfig.BatchBytes),
+		BatchTimeout: k.writerConfig.BatchTimeout,
+		ReadTimeout:  k.writerConfig.ReadTimeout,
+		WriteTimeout: k.writerConfig.WriteTimeout,
+		RequiredAcks: kafka.RequiredAcks(k.writerConfig.RequiredAcks),
+		Async:        k.writerConfig.Async,
+		//Completion:   writerConfig.Completion,
+		//Compression:  writerConfig.Compression,
+		Logger:      k.writerConfig.Logger,
+		ErrorLogger: k.writerConfig.ErrorLogger,
+		Transport: &kafka.Transport{
+			Dial:        k.writerConfig.Dialer.DialFunc,
+			ClientID:    k.writerConfig.Dialer.ClientID,
+			IdleTimeout: time.Second * 5,
+			MetadataTTL: time.Second * 9,
+			SASL:        k.writerConfig.Dialer.SASLMechanism,
+		},
 	}
 
 	if fn, ok := k.opts.Context.Value(writerCompletionFunc{}).(func([]kafka.Message, error)); ok {

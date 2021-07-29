@@ -2,6 +2,7 @@ package segmentio
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	kafka "github.com/segmentio/kafka-go"
@@ -10,7 +11,14 @@ import (
 
 func readerStats(ctx context.Context, r *kafka.Reader, td time.Duration, m meter.Meter) {
 	ticker := time.NewTicker(td)
-	defer ticker.Stop()
+	var once sync.Once
+
+	onceLabels := make([]string, 0, 4)
+
+	defer func() {
+		ticker.Stop()
+		m.Counter("broker_reader_count", onceLabels...).Add(int(-1))
+	}()
 
 	for {
 		select {
@@ -22,7 +30,10 @@ func readerStats(ctx context.Context, r *kafka.Reader, td time.Duration, m meter
 			}
 			rstats := r.Stats()
 			labels := []string{"topic", rstats.Topic, "partition", rstats.Partition, "client_id", rstats.ClientID}
-
+			once.Do(func() {
+				onceLabels = []string{"topic", rstats.Topic, "client_id", rstats.ClientID}
+				m.Counter("broker_reader_count", onceLabels...).Add(int(1))
+			})
 			m.Counter("broker_reader_dial_count", labels...).Add(int(rstats.Dials))
 			m.Counter("broker_reader_fetch_count", labels...).Add(int(rstats.Fetches))
 			m.Counter("broker_reader_message_count", labels...).Add(int(rstats.Messages))
