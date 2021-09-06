@@ -2,6 +2,8 @@
 
 Micro Broker Segmentio implementation.
 
+DEPRECATION WARNING: not maintained, use github.com/unistack-org/micro-broker-kgo instead
+
 ## License
 
 Apache 2.0 licensed.
