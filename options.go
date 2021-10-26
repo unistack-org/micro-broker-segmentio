@@ -5,8 +5,8 @@ import (
 	"time"
 
 	kafka "github.com/segmentio/kafka-go"
-	"github.com/unistack-org/micro/v3/broker"
-	"github.com/unistack-org/micro/v3/client"
+	"go.unistack.org/micro/v3/broker"
+	"go.unistack.org/micro/v3/client"
 )
 
 var (
@@ -17,8 +17,10 @@ var (
 	DefaultCommitQueueSize = 2000
 )
 
-type readerConfigKey struct{}
-type writerConfigKey struct{}
+type (
+	readerConfigKey struct{}
+	writerConfigKey struct{}
+)
 
 func ReaderConfig(c kafka.ReaderConfig) broker.Option {
 	return broker.SetOption(readerConfigKey{}, c)

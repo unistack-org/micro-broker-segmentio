@@ -6,7 +6,7 @@ import (
 	"time"
 
 	kafka "github.com/segmentio/kafka-go"
-	"github.com/unistack-org/micro/v3/meter"
+	"go.unistack.org/micro/v3/meter"
 )
 
 func readerStats(ctx context.Context, r *kafka.Reader, td time.Duration, m meter.Meter) {

@@ -7,9 +7,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	segmentio "github.com/unistack-org/micro-broker-segmentio/v3"
-	"github.com/unistack-org/micro/v3/broker"
-	"github.com/unistack-org/micro/v3/logger"
+	segmentio "go.unistack.org/micro-broker-segmentio/v3"
+	"go.unistack.org/micro/v3/broker"
+	"go.unistack.org/micro/v3/logger"
 )
 
 func TestSegmentioSubscribe(t *testing.T) {

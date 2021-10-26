@@ -1,5 +1,5 @@
 // Package kafka provides a kafka broker using segmentio
-package segmentio
+package segmentio // import "go.unistack.org/micro-broker-segmentio/v3"
 
 import (
 	"context"
@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
 	kafka "github.com/segmentio/kafka-go"
-	"github.com/unistack-org/micro/v3/broker"
-	"github.com/unistack-org/micro/v3/logger"
-	"github.com/unistack-org/micro/v3/metadata"
+	"go.unistack.org/micro/v3/broker"
+	"go.unistack.org/micro/v3/logger"
+	"go.unistack.org/micro/v3/metadata"
+	"go.unistack.org/micro/v3/util/id"
 )
 
 type kBroker struct {
@@ -316,11 +316,11 @@ func (k *kBroker) BatchSubscribe(ctx context.Context, topic string, handler brok
 	opt := broker.NewSubscribeOptions(opts...)
 
 	if opt.Group == "" {
-		id, err := uuid.NewRandom()
+		gid, err := id.New()
 		if err != nil {
 			return nil, err
 		}
-		opt.Group = id.String()
+		opt.Group = gid
 	}
 
 	cgcfg := kafka.ConsumerGroupConfig{
@@ -486,11 +486,11 @@ func (k *kBroker) Subscribe(ctx context.Context, topic string, handler broker.Ha
 	opt := broker.NewSubscribeOptions(opts...)
 
 	if opt.Group == "" {
-		id, err := uuid.NewRandom()
+		gid, err := id.New()
 		if err != nil {
 			return nil, err
 		}
-		opt.Group = id.String()
+		opt.Group = gid
 	}
 
 	cgcfg := kafka.ConsumerGroupConfig{
@@ -590,7 +590,7 @@ func (k *kBroker) Subscribe(ctx context.Context, topic string, handler broker.Ha
 					continue
 				}
 
-				//k.opts.Meter.Counter("broker_reader_partitions", "topic", topic).Set(uint64(0))
+				// k.opts.Meter.Counter("broker_reader_partitions", "topic", topic).Set(uint64(0))
 				ackCh := make(chan map[string]map[int]int64, DefaultCommitQueueSize)
 				errChLen := 0
 				for _, assignments := range generation.Assignments {
@@ -604,7 +604,7 @@ func (k *kBroker) Subscribe(ctx context.Context, topic string, handler broker.Ha
 				cntWait := int32(0)
 
 				for topic, assignments := range generation.Assignments {
-					//k.opts.Meter.Counter("broker_reader_partitions", "topic", topic).Set(uint64(len(assignments)))
+					// k.opts.Meter.Counter("broker_reader_partitions", "topic", topic).Set(uint64(len(assignments)))
 
 					if k.opts.Logger.V(logger.DebugLevel) {
 						k.opts.Logger.Debugf(k.opts.Context, "topic: %s assignments: %v", topic, assignments)
@@ -659,7 +659,6 @@ type cgHandler struct {
 }
 
 func (k *kBroker) commitLoop(generation *kafka.Generation, commitInterval time.Duration, ackCh chan map[string]map[int]int64, errChs []chan error, readerDone *int32, commitDoneCh chan bool, cntWait *int32) {
-
 	if k.opts.Logger.V(logger.DebugLevel) {
 		k.opts.Logger.Debug(k.opts.Context, "start async commit loop")
 	}
@@ -734,7 +733,7 @@ func (k *kBroker) commitLoop(generation *kafka.Generation, commitInterval time.D
 	}()
 
 	if td == 0 {
-		//sync commit loop
+		// sync commit loop
 		for {
 			if atomic.LoadInt32(readerDone) == 1 && atomic.LoadInt32(cntWait) == 0 {
 				break
